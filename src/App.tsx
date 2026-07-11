@@ -33,6 +33,10 @@ function errorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+function compactOcrText(text: string) {
+  return text.replace(/[\s\u200b\u200c\u200d\ufeff]+/g, "");
+}
+
 export default function App() {
   const [inputText, setInputText] = useState("");
   const [mode, setMode] = useState<PromptMode>("auto");
@@ -204,7 +208,7 @@ export default function App() {
       let compactText = "";
       try {
         const recognizedText = await startCaptureNative();
-        compactText = recognizedText.replace(/\s+/g, "");
+        compactText = compactOcrText(recognizedText);
         if (!compactText) {
           throw new Error("OCR 未识别到可发送的文字。");
         }
