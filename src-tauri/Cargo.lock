@@ -5064,6 +5064,7 @@ dependencies = [
 name = "zy-trans"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "image",
  "serde",
  "serde_json",

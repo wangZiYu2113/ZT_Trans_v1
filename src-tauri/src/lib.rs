@@ -5,9 +5,9 @@ mod selection;
 use lifecycle::QueryManager;
 use selection::read_selected_text_impl;
 use serde::{Deserialize, Serialize};
+use tauri::utils::config::Color;
 use std::sync::{mpsc, Mutex};
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
-use tauri::utils::config::Color;
 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 
 #[derive(Default)]
@@ -67,6 +67,7 @@ async fn start_capture_ocr(app: tauri::AppHandle, state: State<'_, AppState>) ->
         .transparent(true)
         .background_color(Color(0, 0, 0, 0))
         .skip_taskbar(true)
+        .devtools(false)
         .build()
         .map_err(|error| error.to_string())?;
 
@@ -88,7 +89,7 @@ async fn complete_capture_selection(
         let _ = window.hide();
     }
 
-    let text = ocr::recognize_selection(&selection)?;
+    let result = ocr::recognize_selection(&selection);
     if let Some(window) = app.get_webview_window("capture") {
         let _ = window.close();
     }
@@ -98,10 +99,10 @@ async fn complete_capture_selection(
         .map_err(|_| "Capture state is busy, please try again later.".to_string())?
         .take()
     {
-        let _ = sender.send(Ok(text.clone()));
+        let _ = sender.send(result.clone());
     }
 
-    Ok(text)
+    result
 }
 
 #[tauri::command]
