@@ -1,4 +1,5 @@
 mod lifecycle;
+mod ocr;
 mod selection;
 
 use lifecycle::QueryManager;
@@ -85,7 +86,7 @@ async fn complete_capture_selection(
         let _ = window.close();
     }
 
-    let text = recognize_selection_placeholder(&selection);
+    let text = ocr::recognize_selection(&selection)?;
     if let Some(sender) = state
         .capture_sender
         .lock()
@@ -177,11 +178,4 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running zy-trans");
-}
-
-fn recognize_selection_placeholder(selection: &CaptureSelection) -> String {
-    format!(
-        "OCR pending: selected area x={:.0}, y={:.0}, width={:.0}, height={:.0}, scale={:.2}.",
-        selection.x, selection.y, selection.width, selection.height, selection.scale_factor
-    )
 }
