@@ -43,7 +43,7 @@ export function CaptureOverlay() {
         scaleFactor: window.devicePixelRatio || 1
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Capture failed.");
+      setError(err instanceof Error ? err.message : "截图失败。");
     }
   }
 

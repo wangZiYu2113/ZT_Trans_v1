@@ -1,4 +1,5 @@
 import { Copy, RefreshCw, Square } from "lucide-react";
+import { FormattedAnswer } from "./FormattedAnswer";
 import type { QueryState } from "../lib/types";
 
 interface FloatingResultProps {
@@ -47,7 +48,7 @@ export function FloatingResult({ query, onRegenerate, onCancel }: FloatingResult
 
       <div className="result-stream">
         {query.error ? <p className="error-text">{query.error}</p> : null}
-        {query.result ? <pre>{query.result}</pre> : <p className="muted">触发解释后将在这里流式显示。</p>}
+        {query.result ? <FormattedAnswer text={query.result} /> : <p className="muted">触发解释后将在这里流式显示。</p>}
       </div>
 
       <footer className="status-bar">

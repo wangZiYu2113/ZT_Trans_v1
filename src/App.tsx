@@ -6,6 +6,7 @@ import { ModeTabs } from "./components/ModeTabs";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { streamOpenAiCompatible } from "./lib/llm";
 import { buildMessages, detectMode, normalizeText, PROMPT_VERSION } from "./lib/prompts";
+import { openResultWindow, publishResultWindow } from "./lib/resultWindow";
 import {
   buildCacheKey,
   loadCache,
@@ -71,6 +72,15 @@ export default function App() {
 
   const cache = useMemo(() => loadCache(), [history]);
 
+  async function publishOcrResult(nextQuery: QueryState, sourceText: string, enabled: boolean) {
+    if (!enabled) return;
+    await publishResultWindow({
+      query: nextQuery,
+      sourceText,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
   async function runQuery(rawText: string, sourceType: QueryRecord["sourceType"], forceRefresh = false) {
     const trimmed = rawText.trim();
     if (!trimmed) return;
@@ -89,25 +99,33 @@ export default function App() {
       providerId: settings.activeProviderId,
       model: settings.model
     });
+    const shouldUseResultWindow = sourceType === "ocr";
 
-    setQuery({
+    const initialQuery: QueryState = {
       queryId,
       sourceText: trimmed,
       mode: resolvedMode,
       stage: "streaming",
       result: "",
       fromCache: false
-    });
+    };
+    setQuery(initialQuery);
+    await publishOcrResult(initialQuery, trimmed, shouldUseResultWindow);
+    if (shouldUseResultWindow) {
+      await openResultWindow();
+    }
 
     if (!forceRefresh && cache[cacheKey]) {
-      setQuery({
+      const cachedQuery: QueryState = {
         queryId,
         sourceText: trimmed,
         mode: resolvedMode,
         stage: "cache-hit",
         result: cache[cacheKey].response,
         fromCache: true
-      });
+      };
+      setQuery(cachedQuery);
+      await publishOcrResult(cachedQuery, trimmed, shouldUseResultWindow);
       return;
     }
 
@@ -118,15 +136,16 @@ export default function App() {
         signal: controller.signal,
         onToken: (token) => {
           streamed += token;
-          setQuery((current) =>
-            current.queryId === queryId
-              ? {
-                  ...current,
-                  stage: "streaming",
-                  result: streamed
-                }
-              : current
-          );
+          const streamingQuery: QueryState = {
+            queryId,
+            sourceText: trimmed,
+            mode: resolvedMode,
+            stage: "streaming",
+            result: streamed,
+            fromCache: false
+          };
+          setQuery((current) => (current.queryId === queryId ? streamingQuery : current));
+          void publishOcrResult(streamingQuery, trimmed, shouldUseResultWindow);
         }
       });
 
@@ -150,29 +169,43 @@ export default function App() {
       saveCache(nextCache);
       saveHistory(nextHistory);
       setHistory(nextHistory);
-      setQuery((current) =>
-        current.queryId === queryId
-          ? {
-              ...current,
-              stage: "completed",
-              result: response
-            }
-          : current
-      );
+
+      const completedQuery: QueryState = {
+        queryId,
+        sourceText: trimmed,
+        mode: resolvedMode,
+        stage: "completed",
+        result: response,
+        fromCache: false
+      };
+      setQuery((current) => (current.queryId === queryId ? completedQuery : current));
+      await publishOcrResult(completedQuery, trimmed, shouldUseResultWindow);
     } catch (error) {
       if (controller.signal.aborted) {
-        setQuery((current) => (current.queryId === queryId ? { ...current, stage: "cancelled" } : current));
+        const cancelledQuery: QueryState = {
+          queryId,
+          sourceText: trimmed,
+          mode: resolvedMode,
+          stage: "cancelled",
+          result: "",
+          fromCache: false
+        };
+        setQuery((current) => (current.queryId === queryId ? cancelledQuery : current));
+        await publishOcrResult(cancelledQuery, trimmed, shouldUseResultWindow);
         return;
       }
-      setQuery((current) =>
-        current.queryId === queryId
-          ? {
-              ...current,
-              stage: "error",
-              error: errorMessage(error, "解释失败，请稍后重试。")
-            }
-          : current
-      );
+
+      const failedQuery: QueryState = {
+        queryId,
+        sourceText: trimmed,
+        mode: resolvedMode,
+        stage: "error",
+        result: "",
+        error: errorMessage(error, "解释失败，请稍后重试。"),
+        fromCache: false
+      };
+      setQuery((current) => (current.queryId === queryId ? failedQuery : current));
+      await publishOcrResult(failedQuery, trimmed, shouldUseResultWindow);
     }
   }
 
