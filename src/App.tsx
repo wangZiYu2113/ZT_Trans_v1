@@ -191,8 +191,12 @@ export default function App() {
       setQuery({ ...emptyQuery, queryId: crypto.randomUUID(), stage: "ocr-running" });
       try {
         const recognizedText = await startCaptureNative();
-        setInputText(recognizedText);
-        await runQuery(recognizedText, "ocr");
+        const trimmedText = recognizedText.trim();
+        if (!trimmedText) {
+          throw new Error("OCR 未识别到可发送的文字。");
+        }
+        setInputText(trimmedText);
+        await runQuery(trimmedText, "ocr");
       } catch (error) {
         setQuery({
           ...emptyQuery,
