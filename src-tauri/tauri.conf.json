@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "知选",
+  "productName": "知译",
   "version": "0.1.0",
   "identifier": "com.zy.trans",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "知选",
+        "title": "知译",
         "width": 1180,
         "height": 780,
         "minWidth": 920,
@@ -28,6 +28,6 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
-    "icon": []
+    "icon": ["icons/icon.ico"]
   }
 }

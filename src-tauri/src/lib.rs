@@ -9,9 +9,14 @@ use selection::read_selected_text_impl;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::{mpsc, Mutex};
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::utils::config::Color;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutEvent, ShortcutState};
+
+const TRAY_SHOW_ID: &str = "show_main";
+const TRAY_EXIT_ID: &str = "exit_app";
 
 struct AppState {
     query_manager: Mutex<QueryManager>,
@@ -135,12 +140,8 @@ fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn exit_app(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    if let Ok(mut exiting) = state.is_exiting.lock() {
-        *exiting = true;
-    }
-    state.logger.write("app", "exit requested");
-    app.exit(0);
+fn exit_app(app: tauri::AppHandle, _state: State<'_, AppState>) -> Result<(), String> {
+    request_exit(&app);
     Ok(())
 }
 
@@ -386,6 +387,76 @@ fn handle_capture_shortcut(app: &tauri::AppHandle, event: ShortcutEvent) {
     );
 }
 
+fn request_exit(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    if let Ok(mut exiting) = state.is_exiting.lock() {
+        *exiting = true;
+    }
+    state.logger.write("app", "exit requested");
+    app.exit(0);
+}
+
+fn show_main(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        state.logger.write("window", "main shown from tray");
+    }
+}
+
+fn setup_tray(app: &tauri::App) -> Result<(), String> {
+    let show_item = MenuItemBuilder::with_id(TRAY_SHOW_ID, "显示主窗口")
+        .build(app)
+        .map_err(|error| error.to_string())?;
+    let exit_item = MenuItemBuilder::with_id(TRAY_EXIT_ID, "退出应用")
+        .build(app)
+        .map_err(|error| error.to_string())?;
+    let menu = MenuBuilder::new(app)
+        .item(&show_item)
+        .separator()
+        .item(&exit_item)
+        .build()
+        .map_err(|error| error.to_string())?;
+    let icon = app
+        .default_window_icon()
+        .cloned()
+        .ok_or_else(|| "Tray icon is not available.".to_string())?;
+
+    TrayIconBuilder::with_id("main-tray")
+        .icon(icon)
+        .tooltip("知译正在后台运行")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            TRAY_SHOW_ID => show_main(app),
+            TRAY_EXIT_ID => request_exit(app),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            let should_show = matches!(
+                event,
+                TrayIconEvent::DoubleClick {
+                    button: MouseButton::Left,
+                    ..
+                } | TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                }
+            );
+            if should_show {
+                show_main(tray.app_handle());
+            }
+        })
+        .build(app)
+        .map_err(|error| error.to_string())?;
+
+    app.state::<AppState>().logger.write("tray", "tray initialized");
+    Ok(())
+}
+
 #[tauri::command]
 async fn cancel_active_query(state: State<'_, AppState>) -> Result<(), String> {
     let mut manager = state
@@ -410,6 +481,7 @@ pub fn run() {
             app.state::<AppState>()
                 .logger
                 .write("app", &format!("log file: {}", log_path.display()));
+            setup_tray(app)?;
             main_window.show()?;
             Ok(())
         })
