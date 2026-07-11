@@ -34,6 +34,42 @@ export async function cancelCaptureSelection(): Promise<void> {
   return invoke<void>("cancel_capture_selection");
 }
 
+export async function configureShortcutsNative(selection: string, capture: string): Promise<void> {
+  if (!isTauriRuntime) return;
+  return invoke<void>("configure_shortcuts", {
+    config: {
+      selection,
+      capture
+    }
+  });
+}
+
+export async function setCloseBehaviorNative(behavior: "hide" | "exit"): Promise<void> {
+  if (!isTauriRuntime) return;
+  return invoke<void>("set_close_behavior", {
+    config: {
+      behavior
+    }
+  });
+}
+
+export async function writeAppLogNative(scope: string, message: string): Promise<void> {
+  if (!isTauriRuntime) return;
+  return invoke<void>("write_app_log", { scope, message });
+}
+
+export async function getLogPathNative(): Promise<string> {
+  return invoke<string>("get_log_path");
+}
+
+export async function showMainWindowNative(): Promise<void> {
+  return invoke<void>("show_main_window");
+}
+
+export async function exitAppNative(): Promise<void> {
+  return invoke<void>("exit_app");
+}
+
 export async function listenNativeShortcuts(
   handler: (payload: NativeShortcutPayload) => void
 ): Promise<UnlistenFn | undefined> {

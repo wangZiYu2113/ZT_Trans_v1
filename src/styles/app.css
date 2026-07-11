@@ -102,6 +102,15 @@
   gap: var(--space-4);
 }
 
+.panel-subtitle {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
 h1,
 h2,
 p {
@@ -428,6 +437,13 @@ textarea {
   align-items: center;
 }
 
+.history-actions,
+.history-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .history-main {
   display: grid;
   gap: var(--space-2);
@@ -455,6 +471,13 @@ textarea {
 .settings-panel {
   display: grid;
   gap: var(--space-5);
+}
+
+.settings-inline-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
 }
 
 .form-grid {

@@ -7,6 +7,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   activeProviderId: "openai-compatible",
   hotkeySelection: "Ctrl+Shift+E",
   hotkeyCapture: "Ctrl+Shift+S",
+  closeBehavior: "hide",
   defaultMode: "auto",
   theme: "light",
   requestTimeoutMs: 30000,

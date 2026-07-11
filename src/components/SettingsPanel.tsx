@@ -4,19 +4,24 @@ import type { AppSettings, PromptMode } from "../lib/types";
 
 interface SettingsPanelProps {
   settings: AppSettings;
+  logPath?: string;
   onChange: (settings: AppSettings) => void;
   onSave: () => void;
+  onExitApp?: () => void;
 }
 
 const promptModes: Array<Exclude<PromptMode, "auto">> = ["finance", "english", "translate", "general"];
 
-export function SettingsPanel({ settings, onChange, onSave }: SettingsPanelProps) {
+export function SettingsPanel({ settings, logPath, onChange, onSave, onExitApp }: SettingsPanelProps) {
   const patch = (next: Partial<AppSettings>) => onChange({ ...settings, ...next });
 
   return (
     <section className="panel settings-panel">
       <div className="panel-title">
-        <h2>设置</h2>
+        <div>
+          <h2>设置</h2>
+          {logPath ? <span className="panel-subtitle">日志：{logPath}</span> : null}
+        </div>
         <button type="button" className="primary-button compact" onClick={onSave}>
           <Save size={16} />
           保存
@@ -62,13 +67,31 @@ export function SettingsPanel({ settings, onChange, onSave }: SettingsPanelProps
           框选快捷键
           <input value={settings.hotkeyCapture} onChange={(event) => patch({ hotkeyCapture: event.target.value })} />
         </label>
+        <label>
+          关闭主窗口时
+          <select
+            value={settings.closeBehavior}
+            onChange={(event) => patch({ closeBehavior: event.target.value as AppSettings["closeBehavior"] })}
+          >
+            <option value="hide">隐藏到后台</option>
+            <option value="exit">退出应用</option>
+          </select>
+        </label>
+        <div className="settings-inline-actions">
+          <span className="panel-subtitle">快捷键示例：Ctrl+Shift+E、Alt+Q</span>
+          {onExitApp ? (
+            <button type="button" className="secondary-button compact" onClick={onExitApp}>
+              立即退出
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="prompt-editor">
-        {promptModes.map((mode) => (
-          <label key={mode}>
+        {promptModes.map((promptMode) => (
+          <label key={promptMode}>
             <span>
-              {modeName(mode)} Prompt
+              {modeName(promptMode)} Prompt
               <button
                 type="button"
                 className="ghost-button tiny"
@@ -76,7 +99,7 @@ export function SettingsPanel({ settings, onChange, onSave }: SettingsPanelProps
                   patch({
                     customPrompts: {
                       ...settings.customPrompts,
-                      [mode]: DEFAULT_PROMPTS[mode]
+                      [promptMode]: DEFAULT_PROMPTS[promptMode]
                     }
                   })
                 }
@@ -86,12 +109,12 @@ export function SettingsPanel({ settings, onChange, onSave }: SettingsPanelProps
               </button>
             </span>
             <textarea
-              value={settings.customPrompts[mode] ?? DEFAULT_PROMPTS[mode]}
+              value={settings.customPrompts[promptMode] ?? DEFAULT_PROMPTS[promptMode]}
               onChange={(event) =>
                 patch({
                   customPrompts: {
                     ...settings.customPrompts,
-                    [mode]: event.target.value
+                    [promptMode]: event.target.value
                   }
                 })
               }

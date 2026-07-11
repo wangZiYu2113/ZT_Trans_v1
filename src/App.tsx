@@ -4,6 +4,7 @@ import { FloatingResult } from "./components/FloatingResult";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { ModeTabs } from "./components/ModeTabs";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { polishAnswer } from "./lib/answerQuality";
 import { streamOpenAiCompatible } from "./lib/llm";
 import { buildMessages, detectMode, normalizeText, PROMPT_VERSION } from "./lib/prompts";
 import { openResultWindow, publishResultWindow } from "./lib/resultWindow";
@@ -16,7 +17,17 @@ import {
   saveHistory,
   saveSettings
 } from "./lib/storage";
-import { explainSelectionNative, isTauriRuntime, listenNativeShortcuts, startCaptureNative } from "./lib/tauri";
+import {
+  configureShortcutsNative,
+  exitAppNative,
+  explainSelectionNative,
+  getLogPathNative,
+  isTauriRuntime,
+  listenNativeShortcuts,
+  setCloseBehaviorNative,
+  startCaptureNative,
+  writeAppLogNative
+} from "./lib/tauri";
 import type { AppSettings, PromptMode, QueryRecord, QueryState } from "./lib/types";
 
 const emptyQuery: QueryState = {
@@ -38,6 +49,22 @@ function compactOcrText(text: string) {
   return text.replace(/[\s\u200b\u200c\u200d\ufeff]+/g, "");
 }
 
+function formatTimestamp(value: string) {
+  return new Date(value).toLocaleString();
+}
+
+function downloadTextFile(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function App() {
   const [inputText, setInputText] = useState("");
   const [mode, setMode] = useState<PromptMode>("auto");
@@ -45,6 +72,7 @@ export default function App() {
   const [history, setHistory] = useState<QueryRecord[]>(() => loadHistory());
   const [query, setQuery] = useState<QueryState>(emptyQuery);
   const [activeView, setActiveView] = useState<"workbench" | "settings">("workbench");
+  const [logPath, setLogPath] = useState("");
   const abortRef = useRef<AbortController | null>(null);
   const captureRunningRef = useRef(false);
   const shortcutHandlersRef = useRef({
@@ -55,6 +83,24 @@ export default function App() {
   useEffect(() => {
     setMode(settings.defaultMode);
   }, [settings.defaultMode]);
+
+  useEffect(() => {
+    if (!isTauriRuntime) return;
+
+    void syncNativeSettings(settings, "startup").catch((error) => {
+      const message = errorMessage(error, "快捷键初始化失败。");
+      setQuery({
+        ...emptyQuery,
+        queryId: crypto.randomUUID(),
+        stage: "error",
+        error: message
+      });
+      void logEvent("settings", `startup failed: ${message}`);
+    });
+    void getLogPathNative()
+      .then(setLogPath)
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -71,6 +117,24 @@ export default function App() {
   }, []);
 
   const cache = useMemo(() => loadCache(), [history]);
+
+  async function logEvent(scope: string, message: string) {
+    try {
+      await writeAppLogNative(scope, message);
+    } catch {
+      // Logging must never interrupt the translation flow.
+    }
+  }
+
+  async function syncNativeSettings(nextSettings: AppSettings, reason: string) {
+    if (!isTauriRuntime) return;
+    await configureShortcutsNative(nextSettings.hotkeySelection, nextSettings.hotkeyCapture);
+    await setCloseBehaviorNative(nextSettings.closeBehavior);
+    await logEvent(
+      "settings",
+      `${reason}: selection=${nextSettings.hotkeySelection} capture=${nextSettings.hotkeyCapture} close=${nextSettings.closeBehavior}`
+    );
+  }
 
   async function publishPopupResult(nextQuery: QueryState, sourceText: string, enabled: boolean) {
     if (!enabled) return;
@@ -114,6 +178,7 @@ export default function App() {
     if (shouldUseResultWindow) {
       await openResultWindow();
     }
+    await logEvent("query", `start source=${sourceType} mode=${resolvedMode}`);
 
     if (!forceRefresh && cache[cacheKey]) {
       const cachedQuery: QueryState = {
@@ -126,6 +191,7 @@ export default function App() {
       };
       setQuery(cachedQuery);
       await publishPopupResult(cachedQuery, trimmed, shouldUseResultWindow);
+      await logEvent("query", `cache hit source=${sourceType}`);
       return;
     }
 
@@ -148,6 +214,7 @@ export default function App() {
           void publishPopupResult(streamingQuery, trimmed, shouldUseResultWindow);
         }
       });
+      const polishedResponse = polishAnswer(response);
 
       const record: QueryRecord = {
         id: queryId,
@@ -156,7 +223,7 @@ export default function App() {
         sourceType,
         recognizedText: sourceType === "ocr" ? trimmed : "",
         mode: resolvedMode,
-        response,
+        response: polishedResponse,
         model: settings.model,
         providerId: settings.activeProviderId,
         promptVersion: PROMPT_VERSION,
@@ -175,11 +242,12 @@ export default function App() {
         sourceText: trimmed,
         mode: resolvedMode,
         stage: "completed",
-        result: response,
+        result: polishedResponse,
         fromCache: false
       };
       setQuery((current) => (current.queryId === queryId ? completedQuery : current));
       await publishPopupResult(completedQuery, trimmed, shouldUseResultWindow);
+      await logEvent("query", `completed source=${sourceType}`);
     } catch (error) {
       if (controller.signal.aborted) {
         const cancelledQuery: QueryState = {
@@ -192,6 +260,7 @@ export default function App() {
         };
         setQuery((current) => (current.queryId === queryId ? cancelledQuery : current));
         await publishPopupResult(cancelledQuery, trimmed, shouldUseResultWindow);
+        await logEvent("query", `cancelled source=${sourceType}`);
         return;
       }
 
@@ -206,6 +275,7 @@ export default function App() {
       };
       setQuery((current) => (current.queryId === queryId ? failedQuery : current));
       await publishPopupResult(failedQuery, trimmed, shouldUseResultWindow);
+      await logEvent("query", `failed source=${sourceType}: ${failedQuery.error ?? "unknown"}`);
     }
   }
 
@@ -217,15 +287,20 @@ export default function App() {
           throw new Error(shortcutError);
         }
         const selectedText = shortcutText ?? (await explainSelectionNative());
+        if (!selectedText.trim()) {
+          throw new Error("未读取到选中文本。");
+        }
         setInputText(selectedText);
         await runQuery(selectedText, "selection");
       } catch (error) {
+        const message = errorMessage(error, "未读取到选中文本。");
         setQuery({
           ...emptyQuery,
           queryId: crypto.randomUUID(),
           stage: "error",
-          error: errorMessage(error, "未读取到选中文本。")
+          error: message
         });
+        await logEvent("selection", `failed: ${message}`);
       }
       return;
     }
@@ -246,13 +321,16 @@ export default function App() {
           throw new Error("OCR 未识别到可发送的文字。");
         }
         setInputText(compactText);
+        await logEvent("ocr", `recognized length=${compactText.length}`);
       } catch (error) {
+        const message = errorMessage(error, "框选 OCR 失败。");
         setQuery({
           ...emptyQuery,
           queryId: crypto.randomUUID(),
           stage: "error",
-          error: errorMessage(error, "框选 OCR 失败。")
+          error: message
         });
+        await logEvent("ocr", `failed: ${message}`);
         captureRunningRef.current = false;
         return;
       }
@@ -260,13 +338,15 @@ export default function App() {
       try {
         await runQuery(compactText, "ocr");
       } catch (error) {
+        const message = errorMessage(error, "OCR 文字发送给模型失败。");
         setQuery({
           ...emptyQuery,
           queryId: crypto.randomUUID(),
           sourceText: compactText,
           stage: "error",
-          error: errorMessage(error, "OCR 文字发送给模型失败。")
+          error: message
         });
+        await logEvent("ocr", `send failed: ${message}`);
       } finally {
         captureRunningRef.current = false;
       }
@@ -289,13 +369,26 @@ export default function App() {
     }
   };
 
-  function persistSettings() {
+  async function persistSettings() {
     saveSettings(settings);
+    try {
+      await syncNativeSettings(settings, "save");
+      await getLogPathNative().then(setLogPath).catch(() => undefined);
+      setQuery({ ...emptyQuery, queryId: crypto.randomUUID(), stage: "completed", result: "设置已保存。", fromCache: false });
+    } catch (error) {
+      setQuery({
+        ...emptyQuery,
+        queryId: crypto.randomUUID(),
+        stage: "error",
+        error: errorMessage(error, "设置保存失败。")
+      });
+    }
   }
 
   function cancelCurrent() {
     abortRef.current?.abort();
     setQuery((current) => ({ ...current, stage: "cancelled" }));
+    void logEvent("query", "cancel requested");
   }
 
   function loadRecord(record: QueryRecord) {
@@ -319,11 +412,45 @@ export default function App() {
     saveHistory(next);
   }
 
+  function deleteRecord(recordId: string) {
+    const next = history.filter((item) => item.id !== recordId);
+    setHistory(next);
+    saveHistory(next);
+    void logEvent("history", `deleted id=${recordId}`);
+  }
+
+  function clearHistory() {
+    if (!window.confirm("确认清空全部历史记录？")) return;
+    setHistory([]);
+    saveHistory([]);
+    saveCache({});
+    void logEvent("history", "cleared");
+  }
+
+  function exportHistory() {
+    const content = history
+      .map(
+        (record) => `[${formatTimestamp(record.createdAt)}]
+问题：
+${record.rawText}
+
+回答：
+${record.response}
+
+---`
+      )
+      .join("\n\n");
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+    downloadTextFile(`zy-trans-history-${stamp}.txt`, content);
+    void logEvent("history", `exported count=${history.length}`);
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span>知选</span>
+          <span>知译</span>
           <small>划一下，框一下，马上解释。</small>
         </div>
         <nav>
@@ -370,14 +497,27 @@ export default function App() {
 
           <FloatingResult
             query={query}
-            onRegenerate={() => runQuery(query.sourceText || inputText, query.sourceText ? "manual" : "manual", true)}
+            onRegenerate={() => runQuery(query.sourceText || inputText, "manual", true)}
             onCancel={cancelCurrent}
           />
-          <HistoryPanel history={history} onSelect={loadRecord} onToggleFavorite={toggleFavorite} />
+          <HistoryPanel
+            history={history}
+            onSelect={loadRecord}
+            onToggleFavorite={toggleFavorite}
+            onDelete={deleteRecord}
+            onClear={clearHistory}
+            onExport={exportHistory}
+          />
         </section>
       ) : (
         <section className="workspace single">
-          <SettingsPanel settings={settings} onChange={setSettings} onSave={persistSettings} />
+          <SettingsPanel
+            settings={settings}
+            logPath={logPath}
+            onChange={setSettings}
+            onSave={() => void persistSettings()}
+            onExitApp={isTauriRuntime ? () => void exitAppNative() : undefined}
+          />
         </section>
       )}
     </main>

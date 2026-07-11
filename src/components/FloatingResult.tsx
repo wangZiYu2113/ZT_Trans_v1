@@ -1,6 +1,6 @@
 import { Copy, RefreshCw, Square } from "lucide-react";
-import { FormattedAnswer } from "./FormattedAnswer";
 import type { QueryState } from "../lib/types";
+import { FormattedAnswer } from "./FormattedAnswer";
 
 interface FloatingResultProps {
   query: QueryState;

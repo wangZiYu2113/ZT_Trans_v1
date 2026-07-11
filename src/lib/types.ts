@@ -17,6 +17,7 @@ export interface AppSettings {
   activeProviderId: string;
   hotkeySelection: string;
   hotkeyCapture: string;
+  closeBehavior: "hide" | "exit";
   defaultMode: PromptMode;
   theme: "light" | "dark";
   requestTimeoutMs: number;
