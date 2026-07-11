@@ -1,0 +1,59 @@
+.capture-overlay {
+  position: fixed;
+  inset: 0;
+  cursor: crosshair;
+  user-select: none;
+  background: rgba(7, 12, 18, 0.22);
+}
+
+.capture-hint,
+.capture-error {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(12, 18, 24, 0.84);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
+  padding: 10px 14px;
+}
+
+.capture-hint {
+  top: 18px;
+}
+
+.capture-hint span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+}
+
+.capture-error {
+  bottom: 18px;
+  color: #ffd3cc;
+}
+
+.capture-rect {
+  position: fixed;
+  z-index: 1;
+  border: 2px solid #1b6b68;
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 0 0 9999px rgba(7, 12, 18, 0.32),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.8);
+}
+
+.capture-rect span {
+  position: absolute;
+  right: 0;
+  bottom: -28px;
+  border-radius: 4px;
+  color: #fff;
+  background: rgba(12, 18, 24, 0.9);
+  font-size: 12px;
+  padding: 4px 7px;
+}

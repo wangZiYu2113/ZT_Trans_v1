@@ -1,0 +1,316 @@
+import { Clipboard, MousePointer2, Send } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FloatingResult } from "./components/FloatingResult";
+import { HistoryPanel } from "./components/HistoryPanel";
+import { ModeTabs } from "./components/ModeTabs";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { streamOpenAiCompatible } from "./lib/llm";
+import { buildMessages, detectMode, normalizeText, PROMPT_VERSION } from "./lib/prompts";
+import {
+  buildCacheKey,
+  loadCache,
+  loadHistory,
+  loadSettings,
+  saveCache,
+  saveHistory,
+  saveSettings
+} from "./lib/storage";
+import { explainSelectionNative, isTauriRuntime, listenNativeShortcuts, startCaptureNative } from "./lib/tauri";
+import type { AppSettings, PromptMode, QueryRecord, QueryState } from "./lib/types";
+
+const emptyQuery: QueryState = {
+  queryId: "idle",
+  sourceText: "",
+  mode: "general",
+  stage: "idle",
+  result: "",
+  fromCache: false
+};
+
+export default function App() {
+  const [inputText, setInputText] = useState("");
+  const [mode, setMode] = useState<PromptMode>("auto");
+  const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
+  const [history, setHistory] = useState<QueryRecord[]>(() => loadHistory());
+  const [query, setQuery] = useState<QueryState>(emptyQuery);
+  const [activeView, setActiveView] = useState<"workbench" | "settings">("workbench");
+  const abortRef = useRef<AbortController | null>(null);
+  const shortcutHandlersRef = useRef({
+    selection: () => {},
+    capture: () => {}
+  });
+
+  useEffect(() => {
+    setMode(settings.defaultMode);
+  }, [settings.defaultMode]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listenNativeShortcuts((payload) => {
+      if (payload.action === "selection") shortcutHandlersRef.current.selection();
+      if (payload.action === "capture") shortcutHandlersRef.current.capture();
+    }).then((dispose) => {
+      unlisten = dispose;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
+  const cache = useMemo(() => loadCache(), [history]);
+
+  async function runQuery(rawText: string, sourceType: QueryRecord["sourceType"], forceRefresh = false) {
+    const trimmed = rawText.trim();
+    if (!trimmed) return;
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const queryId = crypto.randomUUID();
+    const resolvedMode = detectMode(trimmed, mode);
+    const normalizedText = normalizeText(trimmed);
+    const cacheKey = buildCacheKey({
+      normalizedText,
+      mode: resolvedMode,
+      promptVersion: PROMPT_VERSION,
+      providerId: settings.activeProviderId,
+      model: settings.model
+    });
+
+    setQuery({
+      queryId,
+      sourceText: trimmed,
+      mode: resolvedMode,
+      stage: "streaming",
+      result: "",
+      fromCache: false
+    });
+
+    if (!forceRefresh && cache[cacheKey]) {
+      setQuery({
+        queryId,
+        sourceText: trimmed,
+        mode: resolvedMode,
+        stage: "cache-hit",
+        result: cache[cacheKey].response,
+        fromCache: true
+      });
+      return;
+    }
+
+    try {
+      const messages = buildMessages(trimmed, resolvedMode, settings);
+      let streamed = "";
+      const response = await streamOpenAiCompatible(settings, messages, {
+        signal: controller.signal,
+        onToken: (token) => {
+          streamed += token;
+          setQuery((current) =>
+            current.queryId === queryId
+              ? {
+                  ...current,
+                  stage: "streaming",
+                  result: streamed
+                }
+              : current
+          );
+        }
+      });
+
+      const record: QueryRecord = {
+        id: queryId,
+        rawText: trimmed,
+        normalizedText,
+        sourceType,
+        recognizedText: sourceType === "ocr" ? trimmed : "",
+        mode: resolvedMode,
+        response,
+        model: settings.model,
+        providerId: settings.activeProviderId,
+        promptVersion: PROMPT_VERSION,
+        createdAt: new Date().toISOString(),
+        isFavorite: false
+      };
+
+      const nextCache = { ...loadCache(), [cacheKey]: record };
+      const nextHistory = [record, ...loadHistory()].slice(0, 100);
+      saveCache(nextCache);
+      saveHistory(nextHistory);
+      setHistory(nextHistory);
+      setQuery((current) =>
+        current.queryId === queryId
+          ? {
+              ...current,
+              stage: "completed",
+              result: response
+            }
+          : current
+      );
+    } catch (error) {
+      if (controller.signal.aborted) {
+        setQuery((current) => (current.queryId === queryId ? { ...current, stage: "cancelled" } : current));
+        return;
+      }
+      setQuery((current) =>
+        current.queryId === queryId
+          ? {
+              ...current,
+              stage: "error",
+              error: error instanceof Error ? error.message : "解释失败，请稍后重试。"
+            }
+          : current
+      );
+    }
+  }
+
+  async function handleSelection() {
+    if (isTauriRuntime) {
+      setQuery({ ...emptyQuery, queryId: crypto.randomUUID(), stage: "reading-selection" });
+      try {
+        const selectedText = await explainSelectionNative();
+        setInputText(selectedText);
+        await runQuery(selectedText, "selection");
+      } catch (error) {
+        setQuery({
+          ...emptyQuery,
+          queryId: crypto.randomUUID(),
+          stage: "error",
+          error: error instanceof Error ? error.message : "未读取到选中文本。"
+        });
+      }
+      return;
+    }
+
+    await runQuery(inputText, "manual");
+  }
+
+  async function handleCapture() {
+    if (isTauriRuntime) {
+      setQuery({ ...emptyQuery, queryId: crypto.randomUUID(), stage: "ocr-running" });
+      try {
+        const recognizedText = await startCaptureNative();
+        setInputText(recognizedText);
+        await runQuery(recognizedText, "ocr");
+      } catch (error) {
+        setQuery({
+          ...emptyQuery,
+          queryId: crypto.randomUUID(),
+          stage: "error",
+          error: error instanceof Error ? error.message : "框选 OCR 失败。"
+        });
+      }
+      return;
+    }
+    setQuery({
+      ...emptyQuery,
+      queryId: crypto.randomUUID(),
+      stage: "error",
+      error: "浏览器预览中无法调用系统 OCR。请在 Tauri 桌面端使用框选功能。"
+    });
+  }
+
+  shortcutHandlersRef.current = {
+    selection: () => {
+      void handleSelection();
+    },
+    capture: () => {
+      void handleCapture();
+    }
+  };
+
+  function persistSettings() {
+    saveSettings(settings);
+  }
+
+  function cancelCurrent() {
+    abortRef.current?.abort();
+    setQuery((current) => ({ ...current, stage: "cancelled" }));
+  }
+
+  function loadRecord(record: QueryRecord) {
+    setInputText(record.rawText);
+    setMode(record.mode);
+    setQuery({
+      queryId: record.id,
+      sourceText: record.rawText,
+      mode: record.mode,
+      stage: "completed",
+      result: record.response,
+      fromCache: true
+    });
+  }
+
+  function toggleFavorite(record: QueryRecord) {
+    const next = history.map((item) =>
+      item.id === record.id ? { ...item, isFavorite: !item.isFavorite } : item
+    );
+    setHistory(next);
+    saveHistory(next);
+  }
+
+  return (
+    <main className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <span>知选</span>
+          <small>划一下，框一下，马上解释。</small>
+        </div>
+        <nav>
+          <button className={activeView === "workbench" ? "active" : ""} onClick={() => setActiveView("workbench")}>
+            工作台
+          </button>
+          <button className={activeView === "settings" ? "active" : ""} onClick={() => setActiveView("settings")}>
+            设置
+          </button>
+        </nav>
+        <div className="hotkeys">
+          <span>划词 {settings.hotkeySelection}</span>
+          <span>框选 {settings.hotkeyCapture}</span>
+        </div>
+      </aside>
+
+      {activeView === "workbench" ? (
+        <section className="workspace">
+          <section className="panel composer">
+            <div className="panel-title">
+              <h1>解释工作台</h1>
+              <ModeTabs value={mode} onChange={setMode} />
+            </div>
+            <textarea
+              value={inputText}
+              onChange={(event) => setInputText(event.target.value)}
+              placeholder="输入或粘贴股票术语、英文短语、句子，也可以在桌面端使用划词和框选。"
+            />
+            <div className="toolbar">
+              <button type="button" className="primary-button" onClick={() => runQuery(inputText, "manual")}>
+                <Send size={16} />
+                解释
+              </button>
+              <button type="button" className="secondary-button" onClick={handleSelection}>
+                <Clipboard size={16} />
+                划词解释
+              </button>
+              <button type="button" className="secondary-button" onClick={handleCapture}>
+                <MousePointer2 size={16} />
+                框选 OCR
+              </button>
+            </div>
+          </section>
+
+          <FloatingResult
+            query={query}
+            onRegenerate={() => runQuery(query.sourceText || inputText, query.sourceText ? "manual" : "manual", true)}
+            onCancel={cancelCurrent}
+          />
+          <HistoryPanel history={history} onSelect={loadRecord} onToggleFavorite={toggleFavorite} />
+        </section>
+      ) : (
+        <section className="workspace single">
+          <SettingsPanel settings={settings} onChange={setSettings} onSave={persistSettings} />
+        </section>
+      )}
+    </main>
+  );
+}
