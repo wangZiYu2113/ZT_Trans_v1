@@ -27,6 +27,12 @@ const emptyQuery: QueryState = {
   fromCache: false
 };
 
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return fallback;
+}
+
 export default function App() {
   const [inputText, setInputText] = useState("");
   const [mode, setMode] = useState<PromptMode>("auto");
@@ -158,7 +164,7 @@ export default function App() {
           ? {
               ...current,
               stage: "error",
-              error: error instanceof Error ? error.message : "解释失败，请稍后重试。"
+              error: errorMessage(error, "解释失败，请稍后重试。")
             }
           : current
       );
@@ -180,7 +186,7 @@ export default function App() {
           ...emptyQuery,
           queryId: crypto.randomUUID(),
           stage: "error",
-          error: error instanceof Error ? error.message : "未读取到选中文本。"
+          error: errorMessage(error, "未读取到选中文本。")
         });
       }
       return;
@@ -205,7 +211,7 @@ export default function App() {
           ...emptyQuery,
           queryId: crypto.randomUUID(),
           stage: "error",
-          error: error instanceof Error ? error.message : "框选 OCR 失败。"
+          error: errorMessage(error, "框选 OCR 失败。")
         });
         return;
       }
@@ -218,7 +224,7 @@ export default function App() {
           queryId: crypto.randomUUID(),
           sourceText: compactText,
           stage: "error",
-          error: error instanceof Error ? error.message : "OCR 文字发送给模型失败。"
+          error: errorMessage(error, "OCR 文字发送给模型失败。")
         });
       }
       return;
