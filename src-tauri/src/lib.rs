@@ -5,8 +5,8 @@ mod selection;
 use lifecycle::QueryManager;
 use selection::read_selected_text_impl;
 use serde::{Deserialize, Serialize};
-use tauri::utils::config::Color;
 use std::sync::{mpsc, Mutex};
+use tauri::utils::config::Color;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 
@@ -57,7 +57,7 @@ async fn start_capture_ocr(app: tauri::AppHandle, state: State<'_, AppState>) ->
             .lock()
             .map_err(|_| "Capture state is busy, please try again later.".to_string())?;
         if sender.is_some() {
-            return Err("Capture is already running.".to_string());
+            *sender = None;
         }
         *sender = Some(tx);
 
@@ -67,6 +67,7 @@ async fn start_capture_ocr(app: tauri::AppHandle, state: State<'_, AppState>) ->
             .map_err(|_| "Capture state is busy, please try again later.".to_string())?;
         *label = Some(capture_label.clone());
     }
+    close_all_capture_windows(&app, Some(&capture_label));
 
     WebviewWindowBuilder::new(&app, &capture_label, WebviewUrl::App("index.html?view=capture".into()))
         .title("Capture")
@@ -148,6 +149,16 @@ fn hide_capture_window(app: &tauri::AppHandle, state: &State<'_, AppState>) {
     }
 }
 
+fn close_all_capture_windows(app: &tauri::AppHandle, except_label: Option<&str>) {
+    for (label, window) in app.webview_windows() {
+        let is_capture = label == "capture" || label.starts_with("capture-");
+        let is_except = except_label.is_some_and(|except| label == except);
+        if is_capture && !is_except {
+            let _ = window.close();
+        }
+    }
+}
+
 fn close_capture_window(app: &tauri::AppHandle, state: &State<'_, AppState>) {
     if let Some(label) = current_capture_label(state) {
         if let Some(window) = app.get_webview_window(&label) {
@@ -192,21 +203,25 @@ pub fn run() {
                     }
 
                     if shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyE) {
-                        let payload = match selection::read_selected_text_now() {
-                            Ok(text) => ShortcutPayload {
-                                action: "selection",
-                                text: Some(text),
-                                error: None,
-                            },
-                            Err(error) => ShortcutPayload {
-                                action: "selection",
-                                text: None,
-                                error: Some(error.to_string()),
-                            },
-                        };
-                        let _ = app.emit("zy-trans://shortcut", payload);
+                        let app = app.clone();
+                        std::thread::spawn(move || {
+                            let payload = match selection::read_selected_text_now() {
+                                Ok(text) => ShortcutPayload {
+                                    action: "selection",
+                                    text: Some(text),
+                                    error: None,
+                                },
+                                Err(error) => ShortcutPayload {
+                                    action: "selection",
+                                    text: None,
+                                    error: Some(error.to_string()),
+                                },
+                            };
+                            let _ = app.emit_to("main", "zy-trans://shortcut", payload);
+                        });
                     } else if shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyS) {
-                        let _ = app.emit(
+                        let _ = app.emit_to(
+                            "main",
                             "zy-trans://shortcut",
                             ShortcutPayload {
                                 action: "capture",
