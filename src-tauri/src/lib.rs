@@ -19,6 +19,8 @@ struct AppState {
 #[derive(Clone, Serialize)]
 struct ShortcutPayload {
     action: &'static str,
+    text: Option<String>,
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -149,20 +151,29 @@ pub fn run() {
                         return;
                     }
 
-                    let action =
-                        if shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyE) {
-                            Some("selection")
-                        } else if shortcut.matches(
-                            Modifiers::CONTROL | Modifiers::SHIFT,
-                            Code::KeyS,
-                        ) {
-                            Some("capture")
-                        } else {
-                            None
-                    };
-
-                    if let Some(action) = action {
-                        let _ = app.emit("zy-trans://shortcut", ShortcutPayload { action });
+                    if shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyE) {
+                        let payload = match selection::read_selected_text_now() {
+                            Ok(text) => ShortcutPayload {
+                                action: "selection",
+                                text: Some(text),
+                                error: None,
+                            },
+                            Err(error) => ShortcutPayload {
+                                action: "selection",
+                                text: None,
+                                error: Some(error.to_string()),
+                            },
+                        };
+                        let _ = app.emit("zy-trans://shortcut", payload);
+                    } else if shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyS) {
+                        let _ = app.emit(
+                            "zy-trans://shortcut",
+                            ShortcutPayload {
+                                action: "capture",
+                                text: None,
+                                error: None,
+                            },
+                        );
                     }
                 })
                 .build(),

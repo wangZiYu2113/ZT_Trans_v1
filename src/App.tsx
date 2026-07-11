@@ -36,7 +36,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<"workbench" | "settings">("workbench");
   const abortRef = useRef<AbortController | null>(null);
   const shortcutHandlersRef = useRef({
-    selection: () => {},
+    selection: (_text?: string, _error?: string) => {},
     capture: () => {}
   });
 
@@ -47,7 +47,7 @@ export default function App() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     listenNativeShortcuts((payload) => {
-      if (payload.action === "selection") shortcutHandlersRef.current.selection();
+      if (payload.action === "selection") shortcutHandlersRef.current.selection(payload.text, payload.error);
       if (payload.action === "capture") shortcutHandlersRef.current.capture();
     }).then((dispose) => {
       unlisten = dispose;
@@ -165,11 +165,14 @@ export default function App() {
     }
   }
 
-  async function handleSelection() {
+  async function handleSelection(shortcutText?: string, shortcutError?: string) {
     if (isTauriRuntime) {
       setQuery({ ...emptyQuery, queryId: crypto.randomUUID(), stage: "reading-selection" });
       try {
-        const selectedText = await explainSelectionNative();
+        if (shortcutError) {
+          throw new Error(shortcutError);
+        }
+        const selectedText = shortcutText ?? (await explainSelectionNative());
         setInputText(selectedText);
         await runQuery(selectedText, "selection");
       } catch (error) {
@@ -191,12 +194,12 @@ export default function App() {
       setQuery({ ...emptyQuery, queryId: crypto.randomUUID(), stage: "ocr-running" });
       try {
         const recognizedText = await startCaptureNative();
-        const trimmedText = recognizedText.trim();
-        if (!trimmedText) {
+        const compactText = recognizedText.replace(/\s+/g, "");
+        if (!compactText) {
           throw new Error("OCR 未识别到可发送的文字。");
         }
-        setInputText(trimmedText);
-        await runQuery(trimmedText, "ocr");
+        setInputText(compactText);
+        await runQuery(compactText, "ocr");
       } catch (error) {
         setQuery({
           ...emptyQuery,
@@ -216,8 +219,8 @@ export default function App() {
   }
 
   shortcutHandlersRef.current = {
-    selection: () => {
-      void handleSelection();
+    selection: (text?: string, error?: string) => {
+      void handleSelection(text, error);
     },
     capture: () => {
       void handleCapture();
@@ -292,7 +295,7 @@ export default function App() {
                 <Send size={16} />
                 解释
               </button>
-              <button type="button" className="secondary-button" onClick={handleSelection}>
+              <button type="button" className="secondary-button" onClick={() => handleSelection()}>
                 <Clipboard size={16} />
                 划词解释
               </button>

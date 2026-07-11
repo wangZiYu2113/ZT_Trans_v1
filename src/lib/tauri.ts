@@ -6,6 +6,8 @@ export const isTauriRuntime = "__TAURI_INTERNALS__" in window;
 
 export interface NativeShortcutPayload {
   action: "selection" | "capture";
+  text?: string;
+  error?: string;
 }
 
 export interface CaptureSelection {

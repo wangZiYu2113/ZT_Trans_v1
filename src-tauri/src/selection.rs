@@ -9,6 +9,10 @@ pub enum SelectionError {
 }
 
 pub async fn read_selected_text_impl(_app: AppHandle) -> Result<String, SelectionError> {
+    read_selected_text_now()
+}
+
+pub fn read_selected_text_now() -> Result<String, SelectionError> {
     read_selected_text_impl_platform()
 }
 
