@@ -192,20 +192,33 @@ export default function App() {
   async function handleCapture() {
     if (isTauriRuntime) {
       setQuery({ ...emptyQuery, queryId: crypto.randomUUID(), stage: "ocr-running" });
+      let compactText = "";
       try {
         const recognizedText = await startCaptureNative();
-        const compactText = recognizedText.replace(/\s+/g, "");
+        compactText = recognizedText.replace(/\s+/g, "");
         if (!compactText) {
           throw new Error("OCR 未识别到可发送的文字。");
         }
         setInputText(compactText);
-        await runQuery(compactText, "ocr");
       } catch (error) {
         setQuery({
           ...emptyQuery,
           queryId: crypto.randomUUID(),
           stage: "error",
           error: error instanceof Error ? error.message : "框选 OCR 失败。"
+        });
+        return;
+      }
+
+      try {
+        await runQuery(compactText, "ocr");
+      } catch (error) {
+        setQuery({
+          ...emptyQuery,
+          queryId: crypto.randomUUID(),
+          sourceText: compactText,
+          stage: "error",
+          error: error instanceof Error ? error.message : "OCR 文字发送给模型失败。"
         });
       }
       return;
