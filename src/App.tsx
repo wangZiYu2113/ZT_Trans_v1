@@ -72,7 +72,7 @@ export default function App() {
 
   const cache = useMemo(() => loadCache(), [history]);
 
-  async function publishOcrResult(nextQuery: QueryState, sourceText: string, enabled: boolean) {
+  async function publishPopupResult(nextQuery: QueryState, sourceText: string, enabled: boolean) {
     if (!enabled) return;
     await publishResultWindow({
       query: nextQuery,
@@ -99,7 +99,7 @@ export default function App() {
       providerId: settings.activeProviderId,
       model: settings.model
     });
-    const shouldUseResultWindow = sourceType === "ocr";
+    const shouldUseResultWindow = sourceType === "ocr" || sourceType === "selection";
 
     const initialQuery: QueryState = {
       queryId,
@@ -110,7 +110,7 @@ export default function App() {
       fromCache: false
     };
     setQuery(initialQuery);
-    await publishOcrResult(initialQuery, trimmed, shouldUseResultWindow);
+    await publishPopupResult(initialQuery, trimmed, shouldUseResultWindow);
     if (shouldUseResultWindow) {
       await openResultWindow();
     }
@@ -125,7 +125,7 @@ export default function App() {
         fromCache: true
       };
       setQuery(cachedQuery);
-      await publishOcrResult(cachedQuery, trimmed, shouldUseResultWindow);
+      await publishPopupResult(cachedQuery, trimmed, shouldUseResultWindow);
       return;
     }
 
@@ -145,7 +145,7 @@ export default function App() {
             fromCache: false
           };
           setQuery((current) => (current.queryId === queryId ? streamingQuery : current));
-          void publishOcrResult(streamingQuery, trimmed, shouldUseResultWindow);
+          void publishPopupResult(streamingQuery, trimmed, shouldUseResultWindow);
         }
       });
 
@@ -179,7 +179,7 @@ export default function App() {
         fromCache: false
       };
       setQuery((current) => (current.queryId === queryId ? completedQuery : current));
-      await publishOcrResult(completedQuery, trimmed, shouldUseResultWindow);
+      await publishPopupResult(completedQuery, trimmed, shouldUseResultWindow);
     } catch (error) {
       if (controller.signal.aborted) {
         const cancelledQuery: QueryState = {
@@ -191,7 +191,7 @@ export default function App() {
           fromCache: false
         };
         setQuery((current) => (current.queryId === queryId ? cancelledQuery : current));
-        await publishOcrResult(cancelledQuery, trimmed, shouldUseResultWindow);
+        await publishPopupResult(cancelledQuery, trimmed, shouldUseResultWindow);
         return;
       }
 
@@ -205,7 +205,7 @@ export default function App() {
         fromCache: false
       };
       setQuery((current) => (current.queryId === queryId ? failedQuery : current));
-      await publishOcrResult(failedQuery, trimmed, shouldUseResultWindow);
+      await publishPopupResult(failedQuery, trimmed, shouldUseResultWindow);
     }
   }
 

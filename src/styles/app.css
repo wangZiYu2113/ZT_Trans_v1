@@ -356,9 +356,11 @@ textarea {
   padding: 8px 10px 8px 14px;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
+  cursor: move;
+  user-select: none;
 }
 
-.result-popup-header div:first-child {
+.result-popup-title {
   display: grid;
   gap: 2px;
   min-width: 0;
@@ -377,7 +379,13 @@ textarea {
 .result-popup-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
+  cursor: default;
+}
+
+.result-popup-actions .icon-button {
+  width: 32px;
+  height: 32px;
 }
 
 .result-popup-source {

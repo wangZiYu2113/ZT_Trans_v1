@@ -32,6 +32,7 @@ export async function openResultWindow() {
   const existing = await WebviewWindow.getByLabel(RESULT_WINDOW_LABEL);
   if (existing) {
     await existing.show();
+    await existing.unminimize();
     await existing.setFocus();
     return;
   }
