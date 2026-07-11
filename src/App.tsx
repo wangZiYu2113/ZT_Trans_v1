@@ -41,6 +41,7 @@ export default function App() {
   const [query, setQuery] = useState<QueryState>(emptyQuery);
   const [activeView, setActiveView] = useState<"workbench" | "settings">("workbench");
   const abortRef = useRef<AbortController | null>(null);
+  const captureRunningRef = useRef(false);
   const shortcutHandlersRef = useRef({
     selection: (_text?: string, _error?: string) => {},
     capture: () => {}
@@ -196,7 +197,9 @@ export default function App() {
   }
 
   async function handleCapture() {
+    if (captureRunningRef.current) return;
     if (isTauriRuntime) {
+      captureRunningRef.current = true;
       setQuery({ ...emptyQuery, queryId: crypto.randomUUID(), stage: "ocr-running" });
       let compactText = "";
       try {
@@ -213,6 +216,7 @@ export default function App() {
           stage: "error",
           error: errorMessage(error, "框选 OCR 失败。")
         });
+        captureRunningRef.current = false;
         return;
       }
 
@@ -226,6 +230,8 @@ export default function App() {
           stage: "error",
           error: errorMessage(error, "OCR 文字发送给模型失败。")
         });
+      } finally {
+        captureRunningRef.current = false;
       }
       return;
     }

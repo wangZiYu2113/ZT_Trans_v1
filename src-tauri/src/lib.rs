@@ -14,6 +14,7 @@ use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 struct AppState {
     query_manager: Mutex<QueryManager>,
     capture_sender: Mutex<Option<mpsc::Sender<Result<String, String>>>>,
+    capture_window_label: Mutex<Option<String>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -48,20 +49,26 @@ async fn start_capture_ocr(app: tauri::AppHandle, state: State<'_, AppState>) ->
         .map_err(|_| "Query state is busy, please try again later.".to_string())?;
     manager.start_new_query("ocr");
 
-    if let Some(existing) = app.get_webview_window("capture") {
-        let _ = existing.close();
-    }
-
     let (tx, rx) = mpsc::channel::<Result<String, String>>();
+    let capture_label = format!("capture-{}", uuid::Uuid::new_v4());
     {
         let mut sender = state
             .capture_sender
             .lock()
             .map_err(|_| "Capture state is busy, please try again later.".to_string())?;
+        if sender.is_some() {
+            return Err("Capture is already running.".to_string());
+        }
         *sender = Some(tx);
+
+        let mut label = state
+            .capture_window_label
+            .lock()
+            .map_err(|_| "Capture state is busy, please try again later.".to_string())?;
+        *label = Some(capture_label.clone());
     }
 
-    WebviewWindowBuilder::new(&app, "capture", WebviewUrl::App("index.html?view=capture".into()))
+    WebviewWindowBuilder::new(&app, &capture_label, WebviewUrl::App("index.html?view=capture".into()))
         .title("Capture")
         .fullscreen(true)
         .decorations(false)
@@ -71,7 +78,10 @@ async fn start_capture_ocr(app: tauri::AppHandle, state: State<'_, AppState>) ->
         .skip_taskbar(true)
         .devtools(false)
         .build()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            clear_capture_state(&state);
+            error.to_string()
+        })?;
 
     rx.recv()
         .map_err(|_| "Capture was cancelled before OCR started.".to_string())?
@@ -87,14 +97,10 @@ async fn complete_capture_selection(
         return cancel_capture_selection(app, state).await;
     }
 
-    if let Some(window) = app.get_webview_window("capture") {
-        let _ = window.hide();
-    }
+    hide_capture_window(&app, &state);
 
     let result = ocr::recognize_selection(&selection);
-    if let Some(window) = app.get_webview_window("capture") {
-        let _ = window.close();
-    }
+    close_capture_window(&app, &state);
     if let Some(sender) = state
         .capture_sender
         .lock()
@@ -112,9 +118,7 @@ async fn cancel_capture_selection(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    if let Some(window) = app.get_webview_window("capture") {
-        let _ = window.close();
-    }
+    close_capture_window(&app, &state);
 
     if let Some(sender) = state
         .capture_sender
@@ -126,6 +130,42 @@ async fn cancel_capture_selection(
     }
 
     Err("Capture cancelled.".to_string())
+}
+
+fn current_capture_label(state: &State<'_, AppState>) -> Option<String> {
+    state
+        .capture_window_label
+        .lock()
+        .ok()
+        .and_then(|label| label.clone())
+}
+
+fn hide_capture_window(app: &tauri::AppHandle, state: &State<'_, AppState>) {
+    if let Some(label) = current_capture_label(state) {
+        if let Some(window) = app.get_webview_window(&label) {
+            let _ = window.hide();
+        }
+    }
+}
+
+fn close_capture_window(app: &tauri::AppHandle, state: &State<'_, AppState>) {
+    if let Some(label) = current_capture_label(state) {
+        if let Some(window) = app.get_webview_window(&label) {
+            let _ = window.close();
+        }
+    }
+    if let Ok(mut label) = state.capture_window_label.lock() {
+        *label = None;
+    }
+}
+
+fn clear_capture_state(state: &State<'_, AppState>) {
+    if let Ok(mut sender) = state.capture_sender.lock() {
+        *sender = None;
+    }
+    if let Ok(mut label) = state.capture_window_label.lock() {
+        *label = None;
+    }
 }
 
 #[tauri::command]
