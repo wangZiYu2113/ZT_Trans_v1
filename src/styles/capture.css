@@ -1,9 +1,16 @@
+.capture-overlay,
+html:has(.capture-overlay),
+body:has(.capture-overlay),
+body:has(.capture-overlay) #root {
+  background: transparent;
+}
+
 .capture-overlay {
   position: fixed;
   inset: 0;
   cursor: crosshair;
   user-select: none;
-  background: rgba(7, 12, 18, 0.22);
+  background: rgba(7, 12, 18, 0.16);
 }
 
 .capture-hint,
@@ -40,20 +47,10 @@
 .capture-rect {
   position: fixed;
   z-index: 1;
-  border: 2px solid #1b6b68;
-  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  background: transparent;
   box-shadow:
-    0 0 0 9999px rgba(7, 12, 18, 0.32),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.8);
-}
-
-.capture-rect span {
-  position: absolute;
-  right: 0;
-  bottom: -28px;
-  border-radius: 4px;
-  color: #fff;
-  background: rgba(12, 18, 24, 0.9);
-  font-size: 12px;
-  padding: 4px 7px;
+    0 0 0 9999px rgba(7, 12, 18, 0.42),
+    0 0 0 1px rgba(27, 107, 104, 0.92),
+    inset 0 0 0 1px rgba(27, 107, 104, 0.78);
 }

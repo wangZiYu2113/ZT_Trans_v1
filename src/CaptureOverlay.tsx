@@ -76,11 +76,7 @@ export function CaptureOverlay() {
             width: `${rect.width}px`,
             height: `${rect.height}px`
           }}
-        >
-          <span>
-            {Math.round(rect.width)} x {Math.round(rect.height)}
-          </span>
-        </div>
+        />
       ) : null}
       {error ? <div className="capture-error">{error}</div> : null}
     </main>

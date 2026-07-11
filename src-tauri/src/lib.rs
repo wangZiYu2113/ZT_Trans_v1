@@ -7,6 +7,7 @@ use selection::read_selected_text_impl;
 use serde::{Deserialize, Serialize};
 use std::sync::{mpsc, Mutex};
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::utils::config::Color;
 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 
 #[derive(Default)]
@@ -64,6 +65,7 @@ async fn start_capture_ocr(app: tauri::AppHandle, state: State<'_, AppState>) ->
         .decorations(false)
         .always_on_top(true)
         .transparent(true)
+        .background_color(Color(0, 0, 0, 0))
         .skip_taskbar(true)
         .build()
         .map_err(|error| error.to_string())?;
@@ -83,10 +85,13 @@ async fn complete_capture_selection(
     }
 
     if let Some(window) = app.get_webview_window("capture") {
-        let _ = window.close();
+        let _ = window.hide();
     }
 
     let text = ocr::recognize_selection(&selection)?;
+    if let Some(window) = app.get_webview_window("capture") {
+        let _ = window.close();
+    }
     if let Some(sender) = state
         .capture_sender
         .lock()

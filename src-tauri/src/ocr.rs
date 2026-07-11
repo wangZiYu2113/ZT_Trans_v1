@@ -6,8 +6,8 @@ pub fn recognize_selection(selection: &CaptureSelection) -> Result<String, Strin
     let path = capture_selection_to_png(selection)?;
     let text = recognize_text_from_png(&path)?;
     if text.trim().is_empty() {
-        return Ok(format!(
-            "OCR did not detect text in the selected area. Capture saved to {}.",
+        return Err(format!(
+            "OCR did not detect text in the selected area. The screenshot was copied to the clipboard and saved to {}.",
             path.display()
         ));
     }
@@ -87,6 +87,9 @@ fn capture_selection_to_png(selection: &CaptureSelection) -> Result<PathBuf, Str
             return Err("Failed to read captured pixels.".to_string());
         }
 
+        let clipboard_bgra = bgra.clone();
+        let _ = write_capture_to_clipboard(width, height, &clipboard_bgra);
+
         for pixel in bgra.chunks_exact_mut(4) {
             pixel.swap(0, 2);
             pixel[3] = 255;
@@ -102,6 +105,60 @@ fn capture_selection_to_png(selection: &CaptureSelection) -> Result<PathBuf, Str
 
         Ok(path)
     }
+}
+
+#[cfg(windows)]
+unsafe fn write_capture_to_clipboard(width: i32, height: i32, bgra: &[u8]) -> Result<(), String> {
+    use std::mem::size_of;
+    use windows::Win32::Foundation::{HANDLE, HWND};
+    use windows::Win32::Graphics::Gdi::{BITMAPINFOHEADER, BI_RGB};
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    };
+    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+
+    const CF_DIB: u32 = 8;
+    let header = BITMAPINFOHEADER {
+        biSize: size_of::<BITMAPINFOHEADER>() as u32,
+        biWidth: width,
+        biHeight: -height,
+        biPlanes: 1,
+        biBitCount: 32,
+        biCompression: BI_RGB.0,
+        biSizeImage: bgra.len() as u32,
+        ..Default::default()
+    };
+    let total_size = size_of::<BITMAPINFOHEADER>() + bgra.len();
+    let global = GlobalAlloc(GMEM_MOVEABLE, total_size)
+        .map_err(|error| format!("Failed to allocate clipboard image: {error}"))?;
+    let target = GlobalLock(global);
+    if target.is_null() {
+        return Err("Failed to lock clipboard image memory.".to_string());
+    }
+
+    std::ptr::copy_nonoverlapping(
+        &header as *const BITMAPINFOHEADER as *const u8,
+        target as *mut u8,
+        size_of::<BITMAPINFOHEADER>(),
+    );
+    std::ptr::copy_nonoverlapping(
+        bgra.as_ptr(),
+        (target as *mut u8).add(size_of::<BITMAPINFOHEADER>()),
+        bgra.len(),
+    );
+    let _ = GlobalUnlock(global);
+
+    OpenClipboard(HWND(std::ptr::null_mut()))
+        .map_err(|error| format!("Failed to open clipboard for image: {error}"))?;
+    let clipboard_result = (|| {
+        EmptyClipboard().map_err(|error| format!("Failed to clear clipboard: {error}"))?;
+        SetClipboardData(CF_DIB, HANDLE(global.0))
+            .map_err(|error| format!("Failed to write image to clipboard: {error}"))?;
+        Ok::<(), String>(())
+    })();
+    let _ = CloseClipboard();
+
+    clipboard_result
 }
 
 #[cfg(windows)]

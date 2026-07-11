@@ -23,6 +23,12 @@
     Inter, "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
+html,
+body,
+#root {
+  background: transparent;
+}
+
 * {
   box-sizing: border-box;
 }
